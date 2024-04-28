@@ -1,8 +1,8 @@
 ﻿namespace zadanie_zajecia_7.DTO;
 
-public record OrderDTO(
-    int IdOrder,
+public record CreateProduct_WarehouseDTO(
     int IdProduct,
+    int IdWarehouse,
     int Amount,
     DateTime CreatedAt
     );
