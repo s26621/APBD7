@@ -14,6 +14,11 @@ public class OrderController : ControllerBase
     {
         _orderService = orderService;
     }
+    
+    // "idProduct": 1,
+    // "idWarehouse": 2,
+    // "amount": 20,
+    // "createdAt": "2012-04-23T18:25:43.511Z"
 
     [HttpPost]
     public async Task<IActionResult> Create(CreateProduct_WarehouseDTO productWarehouse)
@@ -27,7 +32,7 @@ public class OrderController : ControllerBase
         return Ok(id);
     }
     
-    [HttpPost]
+    [HttpPost("/procedure")]
     public async Task<IActionResult> CreateWithProcedure(CreateProduct_WarehouseDTO productWarehouse)
     {
         int id = await _orderService.CreateWithProcedure(productWarehouse);

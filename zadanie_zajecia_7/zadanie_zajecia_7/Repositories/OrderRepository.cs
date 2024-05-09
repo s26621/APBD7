@@ -1,8 +1,7 @@
-﻿using System.Data.SqlClient;
-using Microsoft.IdentityModel.Tokens;
-using Microsoft.VisualBasic.CompilerServices;
+﻿using System.Data;
+using System.Data.SqlClient;
+using Microsoft.Data.SqlClient;
 using zadanie_zajecia_7.DTO;
-using zadanie_zajecia_7.Models;
 
 namespace zadanie_zajecia_7.Repositories;
 
@@ -18,41 +17,19 @@ public class OrderRepository : IOrderRepository
     public async Task<int> Create(CreateProduct_WarehouseDTO productWarehouse)
     {
         (int idProduct, int idWarehouse, int amount, DateTime createdAt) = productWarehouse;
-        
-        await using var connection = new SqlConnection(_configuration["ConnectionStrings:DefaultConnection"]);
-        await using var command = new SqlCommand();
 
-        command.Connection = connection;
+        // 1. Sprawdzamy, czy produkt o podanym identyfikatorze istnieje. Następnie
+        //    sprawdzamy, czy magazyn o podanym identyfikatorze istnieje. Wartość
+        //    ilości przekazana w żądaniu powinna być większa niż 0.
         
         
-         // 1. Sprawdzamy, czy produkt o podanym identyfikatorze istnieje. Następnie
-         //    sprawdzamy, czy magazyn o podanym identyfikatorze istnieje. Wartość
-         //    ilości przekazana w żądaniu powinna być większa niż 0.
-                
-        command.CommandText = "SELECT Count(1) FROM Product WHERE IdProduct = @idProduct";
-        command.Parameters.AddWithValue("idProduct", idProduct);
-        
-        // to nie jest związane z jedynką, ale boję się to przestawiać
-        await connection.OpenAsync();
+        bool czy = await CzyProduktIstnieje(idProduct);
 
-        await using SqlDataReader sqlDataReader = await command.ExecuteReaderAsync();
-        
-        await sqlDataReader.ReadAsync();
+        if (!czy) return -1;
 
-        int ile = int.Parse(sqlDataReader.GetString(0));
+        czy = await CzyMagazynIstnieje(idWarehouse);
 
-        if (ile == 0) return -1;
-        
-        command.CommandText = "SELECT Count(1) FROM Warehouse WHERE IdWarehouse = @idWarehouse";
-        command.Parameters.AddWithValue("idWarehouse", idWarehouse);
-        
-        await command.ExecuteReaderAsync();
-
-        await sqlDataReader.ReadAsync();
-
-        ile = int.Parse(sqlDataReader.GetString(0));
-
-        if (ile == 0) return -1;
+        if (!czy) return -1;
         
         if (amount <= 0) return -1;
 
@@ -61,45 +38,27 @@ public class OrderRepository : IOrderRepository
         //    tabeli Order istnieje rekord z IdProduktu i Ilością (Amount), które
         //    odpowiadają naszemu żądaniu. Data utworzenia zamówienia powinna
         //    być wcześniejsza niż data utworzenia w żądaniu.
-        
-        command.CommandText = "SELECT Count(IdOrder), IdOrder FROM Order WHERE IdProduct = @idProduct AND Amount = @amount AND CreatedAt < @createdAt GROUP BY IdOrder";
-        command.Parameters.AddWithValue("idProduct", idProduct);
-        command.Parameters.AddWithValue("amount", amount);
-        command.Parameters.AddWithValue("createdAt", createdAt);
-        
-        await command.ExecuteReaderAsync();
-        
-        await sqlDataReader.ReadAsync();
 
-        if (sqlDataReader.GetString(0).IsNullOrEmpty() || int.Parse(sqlDataReader.GetString(0)) == 0) return -1;
 
-        int idOrder = int.Parse(sqlDataReader.GetString(1));
+
+        int idOrder = await WezIdZamowienia(idProduct, amount, createdAt);
+
+        if (idOrder == -1) return -1;
         
         
         // 3. Sprawdzamy, czy to zamówienie zostało przypadkiem zrealizowane.
         //    Sprawdzamy, czy nie ma wiersza z danym IdOrder w tabeli
         //    Product_Warehouse.
-        
-        command.CommandText = "SELECT Count(1) FROM Product_Warehouse WHERE IdOrder = @idOrder";
-        command.Parameters.AddWithValue("idOrder", idOrder);
-        
-        await command.ExecuteReaderAsync();
 
-        await sqlDataReader.ReadAsync();
 
-        ile = int.Parse(sqlDataReader.GetString(0));
+        czy = await CzyJuzZrealizowano(idOrder);
 
-        if (ile > 0) return -1;
+        if (czy) return -1;
         
         // 4. Aktualizujemy kolumnę FullfilledAt zamówienia na aktualną datę i godzinę. (UPDATE)
 
 
-        DateTime fullfilledAt = DateTime.Now;
-        
-        command.CommandText = "UPDATE Order SET FullfilledAt = @fullfilledAt WHERE IdOrder = @idOrder";
-        command.Parameters.AddWithValue("fullfilledAt", fullfilledAt);
-        
-        await command.ExecuteReaderAsync();
+        AktualizujDate(idOrder);
 
         
         
@@ -117,33 +76,18 @@ public class OrderRepository : IOrderRepository
         
         
         // zostaje nam tylko Price, które musimy obliczyć za pomocą zapytania o cenę produktu
-        
-        command.CommandText = "SELECT Price FROM Product WHERE IdProduct = @idProduct";
-        command.Parameters.AddWithValue("idProduct", idProduct);
-        
-        await command.ExecuteReaderAsync();
-        await sqlDataReader.ReadAsync();
-                
-        int cena = int.Parse(sqlDataReader.GetString(0))*amount;
-        
-        DateTime createdAtDoWstawienia = DateTime.Now;
 
-        string createdAtString = createdAtDoWstawienia.ToString("yyyy-MM-dd HH:mm:ss.fff");
+
+        int cena = await DajCene(idProduct, amount);
+        
+        string createdAtString = createdAt.ToString("yyyy-MM-dd HH:mm:ss.fff");
         
         // jedziemy! 
-        
-        command.CommandText = "INSERT INTO Product_Warehouse VALUES " +
-                              "(" +
-                              idWarehouse + " " + idProduct + " " + idOrder + " " + amount + " " + cena +" " + createdAtString 
-                              + ")";
-        
-        await command.ExecuteReaderAsync();
+                
+        WstawRekord(idWarehouse, idProduct, idOrder, amount, cena, createdAtString);
             
-        command.CommandText = "SELECT IdProductWarehouse FROM Product_Warehouse WHERE CreatedAt = (SELECT MAX(CreatedAt) FROM ProductWarehouse)";
         
-        await command.ExecuteReaderAsync();
-        await sqlDataReader.ReadAsync();
-        return int.Parse(sqlDataReader.GetString(0));
+        return await DajIndeks();
     }
 
     public async Task<int> CreateWithProcedure(CreateProduct_WarehouseDTO productWarehouse)
@@ -155,7 +99,7 @@ public class OrderRepository : IOrderRepository
 
         command.Connection = connection;
         
-        command.CommandText = "EXECUTE AddProductToWarehouse(@idProduct, @idWarehouse, @amount, @createdAt)";
+        command.CommandText = "EXECUTE AddProductToWarehouse @idProduct, @idWarehouse, @amount, @createdAt";
         command.Parameters.AddWithValue("idProduct", idProduct);
         command.Parameters.AddWithValue("idWarehouse", idWarehouse);
         command.Parameters.AddWithValue("amount", amount);
@@ -171,5 +115,142 @@ public class OrderRepository : IOrderRepository
         if (!sqlDataReader.Read()) return -1;
         return int.Parse(sqlDataReader.GetString(0));
         
+    }
+    
+    // ======================== ODTĄD FUNKCJE POMOCNICZE ===============================
+
+    private async Task<bool> CzyProduktIstnieje(int idProduct)
+    {
+        await using var connection = new SqlConnection(_configuration["ConnectionStrings:DefaultConnection"]);
+        await using var command = new SqlCommand();
+
+        command.Connection = connection;
+                
+        command.CommandText = "SELECT Count(1) FROM Product WHERE IdProduct = @idProduct";
+        command.Parameters.AddWithValue("idProduct", idProduct);
+        
+        await connection.OpenAsync();
+
+        await using SqlDataReader sqlDataReader = await command.ExecuteReaderAsync();
+        
+        await sqlDataReader.ReadAsync();
+        
+        return sqlDataReader.GetInt32(0) > 0;
+    }
+
+    private async Task<bool> CzyMagazynIstnieje(int idWarehouse)
+    {
+        await using var connection = new SqlConnection(_configuration["ConnectionStrings:DefaultConnection"]);
+        await using var command = new SqlCommand();
+
+        command.Connection = connection;
+        command.CommandText = "SELECT Count(1) FROM Warehouse WHERE IdWarehouse = @idWarehouse";
+        command.Parameters.AddWithValue("idWarehouse", idWarehouse);
+                                                
+        await using SqlDataReader sqlDataReader = await command.ExecuteReaderAsync();
+                                        
+        await sqlDataReader.ReadAsync();
+                                        
+        return sqlDataReader.GetInt32(0) > 0;
+    }
+
+    private async Task<int> WezIdZamowienia(int idProduct, int amount, DateTime createdAt)
+    {
+        await using var connection = new SqlConnection(_configuration["ConnectionStrings:DefaultConnection"]);
+        await using var command = new SqlCommand();
+
+        command.Connection = connection;
+        
+        command.CommandText = "SELECT Count(IdOrder), IdOrder FROM Order WHERE IdProduct = @idProduct2 AND Amount = @amount AND CreatedAt < @createdAt GROUP BY IdOrder";
+        command.Parameters.AddWithValue("idProduct2", idProduct);
+        command.Parameters.AddWithValue("amount", amount);
+        command.Parameters.AddWithValue("createdAt", createdAt);
+        
+        await using SqlDataReader sqlDataReader = await command.ExecuteReaderAsync();
+        
+        await sqlDataReader.ReadAsync();
+
+        if (sqlDataReader.GetInt32(0) == 0) return -1;
+        return sqlDataReader.GetInt32(1);
+    }
+
+    private async Task<bool> CzyJuzZrealizowano(int idOrder)
+    {
+        await using var connection = new SqlConnection(_configuration["ConnectionStrings:DefaultConnection"]);
+        await using var command = new SqlCommand();
+
+        command.Connection = connection;
+        
+        command.CommandText = "SELECT Count(1) FROM Product_Warehouse WHERE IdOrder = @idOrder";
+        command.Parameters.AddWithValue("idOrder", idOrder);
+        
+        await using SqlDataReader sqlDataReader = await command.ExecuteReaderAsync();
+
+        await sqlDataReader.ReadAsync();
+
+        return sqlDataReader.GetInt32(0) > 0;
+    }
+
+    private async void AktualizujDate(int idOrder)
+    {
+        await using var connection = new SqlConnection(_configuration["ConnectionStrings:DefaultConnection"]);
+        await using var command = new SqlCommand();
+
+        command.Connection = connection;
+        
+        DateTime fullfilledAt = DateTime.Now;
+        
+        command.CommandText = "UPDATE Order SET FullfilledAt = @fullfilledAt WHERE IdOrder = @idOrder3";
+        command.Parameters.AddWithValue("fullfilledAt", fullfilledAt);
+        command.Parameters.AddWithValue("idOrder3", idOrder);
+
+        
+        await using SqlDataReader sqlDataReader = await command.ExecuteReaderAsync();
+    }
+
+    private async Task<int> DajCene(int idProduct, int amount)
+    {
+        await using var connection = new SqlConnection(_configuration["ConnectionStrings:DefaultConnection"]);
+        await using var command = new SqlCommand();
+
+        command.Connection = connection;
+        
+        command.CommandText = "SELECT Price FROM Product WHERE IdProduct = @idProduct";
+        command.Parameters.AddWithValue("idProduct", idProduct);
+        
+        await using SqlDataReader sqlDataReader = await command.ExecuteReaderAsync();
+        await sqlDataReader.ReadAsync();
+                
+        return sqlDataReader.GetInt32(0) * amount;
+    }
+    
+    private async void WstawRekord(int idWarehouse, int idProduct, int idOrder, int amount, int cena, string createdAtString)
+    {
+        await using var connection = new SqlConnection(_configuration["ConnectionStrings:DefaultConnection"]);
+        await using var command = new SqlCommand();
+
+        command.Connection = connection;
+        
+        command.CommandText = "INSERT INTO Product_Warehouse VALUES " +
+                              "(" +
+                              idWarehouse + " " + idProduct + " " + idOrder + " " + amount + " " + cena +" " + createdAtString 
+                              + ")";
+        
+        await using SqlDataReader sqlDataReader = await command.ExecuteReaderAsync();
+    }
+
+    public async Task<int> DajIndeks()
+    {
+        await using var connection = new SqlConnection(_configuration["ConnectionStrings:DefaultConnection"]);
+        await using var command = new SqlCommand();
+
+        command.Connection = connection;
+        
+        command.CommandText = "SELECT IdProductWarehouse FROM Product_Warehouse WHERE CreatedAt = (SELECT MAX(CreatedAt) FROM ProductWarehouse)";
+        
+        await using SqlDataReader sqlDataReader = await command.ExecuteReaderAsync();
+        await sqlDataReader.ReadAsync();
+
+        return sqlDataReader.GetInt32(0);
     }
 }

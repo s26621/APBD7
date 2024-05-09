@@ -1,5 +1,4 @@
 ﻿using zadanie_zajecia_7.DTO;
-using zadanie_zajecia_7.Models;
 
 namespace zadanie_zajecia_7.Repositories;
 
