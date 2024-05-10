@@ -146,7 +146,9 @@ public class OrderRepository : IOrderRepository
         command.Connection = connection;
         command.CommandText = "SELECT Count(1) FROM Warehouse WHERE IdWarehouse = @idWarehouse";
         command.Parameters.AddWithValue("idWarehouse", idWarehouse);
-                                                
+                                
+        await connection.OpenAsync();
+
         await using SqlDataReader sqlDataReader = await command.ExecuteReaderAsync();
                                         
         await sqlDataReader.ReadAsync();
@@ -166,6 +168,8 @@ public class OrderRepository : IOrderRepository
         command.Parameters.AddWithValue("amount", amount);
         command.Parameters.AddWithValue("createdAt", createdAt);
         
+        await connection.OpenAsync();
+
         await using SqlDataReader sqlDataReader = await command.ExecuteReaderAsync();
         
         await sqlDataReader.ReadAsync();
@@ -184,6 +188,8 @@ public class OrderRepository : IOrderRepository
         command.CommandText = "SELECT Count(1) FROM Product_Warehouse WHERE IdOrder = @idOrder";
         command.Parameters.AddWithValue("idOrder", idOrder);
         
+        await connection.OpenAsync();
+
         await using SqlDataReader sqlDataReader = await command.ExecuteReaderAsync();
 
         await sqlDataReader.ReadAsync();
@@ -198,6 +204,8 @@ public class OrderRepository : IOrderRepository
 
         command.Connection = connection;
         
+        await connection.OpenAsync();
+
         DateTime fullfilledAt = DateTime.Now;
         
         command.CommandText = "UPDATE Order SET FullfilledAt = @fullfilledAt WHERE IdOrder = @idOrder3";
@@ -218,6 +226,8 @@ public class OrderRepository : IOrderRepository
         command.CommandText = "SELECT Price FROM Product WHERE IdProduct = @idProduct";
         command.Parameters.AddWithValue("idProduct", idProduct);
         
+        await connection.OpenAsync();
+
         await using SqlDataReader sqlDataReader = await command.ExecuteReaderAsync();
         await sqlDataReader.ReadAsync();
                 
@@ -236,7 +246,9 @@ public class OrderRepository : IOrderRepository
                               idWarehouse + " " + idProduct + " " + idOrder + " " + amount + " " + cena +" " + createdAtString 
                               + ")";
         
-        await using SqlDataReader sqlDataReader = await command.ExecuteReaderAsync();
+        await connection.OpenAsync();
+
+        await command.ExecuteNonQueryAsync();
     }
 
     public async Task<int> DajIndeks()
@@ -247,7 +259,8 @@ public class OrderRepository : IOrderRepository
         command.Connection = connection;
         
         command.CommandText = "SELECT IdProductWarehouse FROM Product_Warehouse WHERE CreatedAt = (SELECT MAX(CreatedAt) FROM ProductWarehouse)";
-        
+        await connection.OpenAsync();
+
         await using SqlDataReader sqlDataReader = await command.ExecuteReaderAsync();
         await sqlDataReader.ReadAsync();
 
