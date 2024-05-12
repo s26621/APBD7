@@ -113,8 +113,7 @@ public class OrderRepository : IOrderRepository
         await sqlDataReader.ReadAsync();
         
         if (!sqlDataReader.Read()) return -1;
-        return int.Parse(sqlDataReader.GetString(0));
-        
+        return sqlDataReader.GetInt32(0);
     }
     
     // ======================== ODTĄD FUNKCJE POMOCNICZE ===============================
@@ -252,7 +251,7 @@ public class OrderRepository : IOrderRepository
                               + "\')";
         
         await connection.OpenAsync();
-
+        // zwraca ile wierszy zostało zmienionych!
         await command.ExecuteNonQueryAsync();
     }
 
