@@ -78,7 +78,7 @@ public class OrderRepository : IOrderRepository
         // zostaje nam tylko Price, które musimy obliczyć za pomocą zapytania o cenę produktu
 
 
-        int cena = await DajCene(idProduct, amount);
+        double cena = await DajCene(idProduct, amount);
         
         string createdAtString = createdAt.ToString("yyyy-MM-dd HH:mm:ss.fff");
         
@@ -152,8 +152,9 @@ public class OrderRepository : IOrderRepository
         await using SqlDataReader sqlDataReader = await command.ExecuteReaderAsync();
                                         
         await sqlDataReader.ReadAsync();
-                                        
-        return sqlDataReader.GetInt32(0) > 0;
+
+        int temp = sqlDataReader.GetInt32(0);
+        return  temp > 0;
     }
 
     private async Task<int> WezIdZamowienia(int idProduct, int amount, DateTime createdAt)
@@ -163,7 +164,7 @@ public class OrderRepository : IOrderRepository
 
         command.Connection = connection;
         
-        command.CommandText = "SELECT Count(IdOrder), IdOrder FROM Order WHERE IdProduct = @idProduct2 AND Amount = @amount AND CreatedAt < @createdAt GROUP BY IdOrder";
+        command.CommandText = "SELECT Count(IdOrder), IdOrder FROM [Order] WHERE IdProduct = @idProduct2 AND Amount = @amount AND CreatedAt < @createdAt GROUP BY IdOrder";
         command.Parameters.AddWithValue("idProduct2", idProduct);
         command.Parameters.AddWithValue("amount", amount);
         command.Parameters.AddWithValue("createdAt", createdAt);
@@ -208,15 +209,15 @@ public class OrderRepository : IOrderRepository
 
         DateTime fullfilledAt = DateTime.Now;
         
-        command.CommandText = "UPDATE Order SET FullfilledAt = @fullfilledAt WHERE IdOrder = @idOrder3";
+        command.CommandText = "UPDATE [Order] SET FulfilledAt = @fullfilledAt WHERE IdOrder = @idOrder3";
         command.Parameters.AddWithValue("fullfilledAt", fullfilledAt);
         command.Parameters.AddWithValue("idOrder3", idOrder);
 
         
-        await using SqlDataReader sqlDataReader = await command.ExecuteReaderAsync();
+        await command.ExecuteNonQueryAsync();
     }
 
-    private async Task<int> DajCene(int idProduct, int amount)
+    private async Task<double> DajCene(int idProduct, int amount)
     {
         await using var connection = new SqlConnection(_configuration["ConnectionStrings:DefaultConnection"]);
         await using var command = new SqlCommand();
@@ -231,20 +232,24 @@ public class OrderRepository : IOrderRepository
         await using SqlDataReader sqlDataReader = await command.ExecuteReaderAsync();
         await sqlDataReader.ReadAsync();
                 
-        return sqlDataReader.GetInt32(0) * amount;
+        return  (double) sqlDataReader.GetDecimal(0) * amount;
     }
     
-    private async void WstawRekord(int idWarehouse, int idProduct, int idOrder, int amount, int cena, string createdAtString)
+    private async void WstawRekord(int idWarehouse, int idProduct, int idOrder, int amount, double cena, string createdAtString)
     {
         await using var connection = new SqlConnection(_configuration["ConnectionStrings:DefaultConnection"]);
         await using var command = new SqlCommand();
 
+        
         command.Connection = connection;
+
+        string[] temp = cena.ToString().Split(',');
+        string cenaString = temp[0] + "." + temp[1];
         
         command.CommandText = "INSERT INTO Product_Warehouse VALUES " +
                               "(" +
-                              idWarehouse + " " + idProduct + " " + idOrder + " " + amount + " " + cena +" " + createdAtString 
-                              + ")";
+                              idWarehouse + ", " + idProduct + ", " + idOrder + ", " + amount + ", " + cenaString +", \'" + createdAtString 
+                              + "\')";
         
         await connection.OpenAsync();
 
@@ -258,7 +263,9 @@ public class OrderRepository : IOrderRepository
 
         command.Connection = connection;
         
-        command.CommandText = "SELECT IdProductWarehouse FROM Product_Warehouse WHERE CreatedAt = (SELECT MAX(CreatedAt) FROM ProductWarehouse)";
+        command.CommandText = "SELECT IdProductWarehouse FROM Product_Warehouse WHERE IdProductWarehouse = (SELECT MAX(IdProductWarehouse) FROM Product_Warehouse)";
+        // command.CommandText = "SELECT IdProductWarehouse FROM Product_Warehouse WHERE CreatedAt = (SELECT MAX(CreatedAt) FROM Product_Warehouse)";
+        // command.CommandText = "SELECT SCOPE_IDENTITY()";
         await connection.OpenAsync();
 
         await using SqlDataReader sqlDataReader = await command.ExecuteReaderAsync();
